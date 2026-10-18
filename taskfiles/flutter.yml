@@ -1,0 +1,131 @@
+# Flutter tasks shared by the apps. Include from an app repo's Taskfile.yml
+# with a sibling checkout of flutter-helper:
+#
+#   includes:
+#     flutter:
+#       taskfile: ../flutter-helper/taskfiles/flutter.yml
+#       flatten: true
+#       vars:
+#         APP: todo-cli          # Secret Manager prefix and signing key alias
+#         MAC_APP: todo.app      # .app bundle produced by `flutter build macos`
+#         # MOBILE_DIR: .        # when the Flutter app is at the repo root
+#         # MAC_INSTALL_APP: Todo.app  # name in /Applications, if different
+#
+# With `flatten: true` the tasks keep their plain names (`task apk`), so an
+# app must not define a task with the same name. Task directories are
+# relative to the including Taskfile, i.e. the app repo's root.
+version: "3"
+
+vars:
+  MOBILE_DIR: '{{.MOBILE_DIR | default "mobile"}}'
+  MAC_INSTALL_APP: '{{.MAC_INSTALL_APP | default .MAC_APP}}'
+  GCP_PROJECT: '{{.GCP_PROJECT | default "craffy"}}'
+  KEYSTORE_FILE: /tmp/{{.APP}}_release.jks
+  KEY_PROPERTIES_FILE: /tmp/{{.APP}}_key.properties
+  GIT_COMMIT:
+    sh: git -C "{{.ROOT_DIR}}" rev-parse --short HEAD
+
+tasks:
+  apk:
+    desc: Build the release APK
+    dir: "{{.MOBILE_DIR}}"
+    cmd: flutter build apk --dart-define=GIT_COMMIT={{.GIT_COMMIT}}
+
+  mac:
+    desc: Build the macOS app and install it in /Applications
+    platforms: [darwin]
+    dir: "{{.MOBILE_DIR}}"
+    requires:
+      vars: [MAC_APP]
+    cmds:
+      - flutter build macos --dart-define=GIT_COMMIT={{.GIT_COMMIT}}
+      - rm -rf "/Applications/{{.MAC_INSTALL_APP}}"
+      - cp -R "build/macos/Build/Products/Release/{{.MAC_APP}}" "/Applications/{{.MAC_INSTALL_APP}}"
+
+  run-flutter:
+    desc: Run the app on macOS
+    platforms: [darwin]
+    dir: "{{.MOBILE_DIR}}"
+    cmd: flutter run -d macos --dart-define=GIT_COMMIT={{.GIT_COMMIT}}
+
+  run-android:
+    desc: Run the app on the first connected Android device
+    dir: "{{.MOBILE_DIR}}"
+    cmd: >-
+      flutter devices --machine
+      | jq -r '.[] | select(.targetPlatform | contains("android")) | .id'
+      | head -n 1
+      | xargs -I{} flutter run -d {} --dart-define=GIT_COMMIT={{.GIT_COMMIT}}
+
+  flutter-test:
+    desc: Run the Flutter tests
+    dir: "{{.MOBILE_DIR}}"
+    cmd: flutter test
+
+  flutter-coverage:
+    desc: Run the Flutter tests with coverage
+    dir: "{{.MOBILE_DIR}}"
+    cmd: flutter test --coverage
+
+  flutter-coverage-html:
+    desc: Run the Flutter tests with coverage in HTML
+    dir: "{{.MOBILE_DIR}}"
+    cmds:
+      - flutter test --coverage
+      - genhtml coverage/lcov.info -o coverage/html
+
+  lint-flutter:
+    desc: Analyze the Flutter app
+    dir: "{{.MOBILE_DIR}}"
+    cmds:
+      - flutter analyze
+      - dart fix --dry-run
+
+  lint-flutter-fix:
+    desc: Apply the Flutter lint fixes
+    dir: "{{.MOBILE_DIR}}"
+    cmd: dart fix --apply
+
+  generate-apk-signing-key:
+    desc: Generate a release keystore for APK signing
+    requires:
+      vars: [APP]
+    cmds:
+      - |
+        STORE_PASSWORD=$(gum input --password --prompt "Enter keystore password: ")
+        keytool -genkey -v \
+          -keystore {{.KEYSTORE_FILE}} \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -alias {{.APP}} \
+          -dname "CN={{.APP}}, OU=Mobile, O=alexho, L=HK, S=HK, C=HK" \
+          -storepass "$STORE_PASSWORD" \
+          -keypass "$STORE_PASSWORD"
+        base64 -i {{.KEYSTORE_FILE}} -o {{.KEYSTORE_FILE}}.b64
+        printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=release.jks\n' \
+          "$STORE_PASSWORD" "$STORE_PASSWORD" {{.APP}} \
+          > {{.KEY_PROPERTIES_FILE}}
+        echo "Keystore generated at {{.KEYSTORE_FILE}}"
+        echo "key.properties generated at {{.KEY_PROPERTIES_FILE}}"
+        echo "Run 'task upload-apk-signing-secrets' to upload to Secret Manager"
+
+  upload-apk-signing-secrets:
+    desc: Upload the APK signing keystore and key.properties to Secret Manager
+    requires:
+      vars: [APP]
+    cmds:
+      - gcloud secrets versions add {{.APP}}-keystore --data-file={{.KEYSTORE_FILE}}.b64 --project={{.GCP_PROJECT}}
+      - gcloud secrets versions add {{.APP}}-key-properties --data-file={{.KEY_PROPERTIES_FILE}} --project={{.GCP_PROJECT}}
+      - rm {{.KEYSTORE_FILE}} {{.KEYSTORE_FILE}}.b64 {{.KEY_PROPERTIES_FILE}}
+      - echo "Secrets uploaded and local files removed"
+
+  tag:
+    desc: Create a new git tag with incremented patch version (0.1.x)
+    silent: true
+    cmds:
+      - |
+        LATEST=$(git tag --sort=-version:refname | grep -E '^0\.1\.[0-9]+$' | head -1)
+        PATCH=$(echo "$LATEST" | cut -d. -f3)
+        if [ -z "$PATCH" ]; then PATCH=-1; fi
+        NEW_TAG="0.1.$((PATCH + 1))"
+        git tag "$NEW_TAG"
+        echo "Created tag $NEW_TAG"

@@ -1,0 +1,25 @@
+name: flutter_helper
+description: Shared infrastructure for alexhokl's Flutter apps (gRPC channel, backend config, intents, UI helpers, formatting, lint and test helpers).
+version: 0.1.0
+repository: https://github.com/alexhokl/flutter-helper
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Imported by lib/testing.dart only, so apps' tests get the helpers without
+  # declaring these themselves. Nothing under lib/ other than testing.dart
+  # depends on them, so they never reach a release build.
+  flutter_test:
+    sdk: flutter
+  # A regular dependency so that apps can include
+  # package:flutter_helper/analysis_options.yaml, which includes
+  # package:flutter_lints/flutter.yaml.
+  flutter_lints: ^6.0.0
+  grpc: ^5.1.0
+  intl: ^0.20.0
+  shared_preferences: ^2.5.3
+  shared_preferences_platform_interface: ^2.4.1

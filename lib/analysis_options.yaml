@@ -1,0 +1,21 @@
+# Shared lint configuration for the Flutter apps. Use it from an app's
+# analysis_options.yaml with:
+#
+#   include: package:flutter_helper/analysis_options.yaml
+#
+# Excludes listed in the including file are added to the ones below, so an
+# app only lists what is specific to it.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - lib/proto/**
+    - lib/google/protobuf/**
+    - lib/l10n/app_localizations*.dart
+    - android/**
+    - ios/**
+    - linux/**
+    - macos/**
+    - windows/**
+    - web/**
