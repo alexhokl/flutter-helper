@@ -49,8 +49,9 @@ app's repo, which is how `~/git` is laid out; it is only used locally.
 ### Developing against a local checkout
 
 To try a change before it is tagged, add `pubspec_overrides.yaml` next to the
-app's `pubspec.yaml`. It is git-ignored in the apps, so CI keeps using the
-tag.
+app's `pubspec.yaml`. It is git-ignored in the apps, but pub records the path
+in `pubspec.lock`, so delete the override and run `flutter pub get` again
+(after tagging and bumping `ref:`) before committing the app.
 
 ```yaml
 dependency_overrides:
